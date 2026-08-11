@@ -2,10 +2,6 @@ variable "GHCR_IMAGE" {
   default = "ghcr.io/jumpserver-east/component"
 }
 
-variable "ALIYUN_IMAGE" {
-  default = "registry.example.com/fit2cloud_nickyang0_0/component"
-}
-
 variable "BASE_IMAGE" {
   default = "component"
 }
@@ -33,10 +29,7 @@ target "ee" {
   contexts = {
     "jumpserver/${BASE_IMAGE}:${TAG}-ce" = "target:ce"
   }
-  tags = [
-    "${GHCR_IMAGE}:${TAG}",
-    "${ALIYUN_IMAGE}:${TAG}",
-  ]
+  tags = ["${GHCR_IMAGE}:${TAG}"]
   labels = {
     "org.opencontainers.image.version" = "${TAG}"
     "org.jumpserver.edition"           = "ee"

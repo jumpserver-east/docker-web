@@ -2,10 +2,6 @@ variable "GHCR_IMAGE" {
   default = "ghcr.io/jumpserver-east/web"
 }
 
-variable "ALIYUN_IMAGE" {
-  default = "registry.example.com/fit2cloud_nickyang0_0/web"
-}
-
 variable "TAG" {
   default = "dev"
 }
@@ -69,10 +65,7 @@ target "web-ee" {
   contexts = {
     "jumpserver/web:${TAG}-ce" = "target:web-ce"
   }
-  tags = [
-    "${GHCR_IMAGE}:${TAG}",
-    "${ALIYUN_IMAGE}:${TAG}",
-  ]
+  tags   = ["${GHCR_IMAGE}:${TAG}"]
   output = ["type=registry"]
   labels = {
     "org.opencontainers.image.title"         = "JumpServer Web"

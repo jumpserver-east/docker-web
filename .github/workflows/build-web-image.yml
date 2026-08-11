@@ -54,6 +54,7 @@ jobs:
       WEB_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.web_branch || github.event.workflow_run.head_sha || github.event.ref }}
       WEB_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.web_branch || github.event.workflow_run.head_branch || github.event.ref }}
       REQUESTED_TAG: ${{ inputs.tag }}
+      ALIYUN_ENABLED: ${{ secrets.ALIYUN_REGION != '' && secrets.ALIYUN_USERNAME != '' && secrets.ALIYUN_PASSWORD != '' }}
 
     steps:
       - name: Check out build configuration
@@ -108,6 +109,7 @@ jobs:
           password: ${{ github.token }}
 
       - name: Log in to Aliyun
+        if: env.ALIYUN_ENABLED == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ secrets.ALIYUN_REGION }}
@@ -117,7 +119,6 @@ jobs:
       - name: Build Lina, Luna, and complete EE Web image
         uses: docker/bake-action@v6
         env:
-          ALIYUN_IMAGE: ${{ secrets.ALIYUN_REGION }}/fit2cloud_nickyang0_0/web
           GHCR_IMAGE: ghcr.io/jumpserver-east/web
           TAG: ${{ steps.metadata.outputs.tag }}
         with:
@@ -125,6 +126,19 @@ jobs:
           targets: web-ee
           push: true
           set: "*.platform=linux/amd64"
+
+      - name: Push to Aliyun
+        if: env.ALIYUN_ENABLED == 'true'
+        shell: bash
+        env:
+          ALIYUN_REGION: ${{ secrets.ALIYUN_REGION }}
+          IMAGE_TAG: ${{ steps.metadata.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          docker buildx imagetools create \
+            --tag "${ALIYUN_REGION}/fit2cloud_nickyang0_0/web:${IMAGE_TAG}" \
+            "ghcr.io/jumpserver-east/web:${IMAGE_TAG}"
 
       - name: Verify GHCR package is private
         shell: bash
@@ -143,6 +157,8 @@ jobs:
 
       - name: Publish summary
         shell: bash
+        env:
+          ALIYUN_REGION: ${{ secrets.ALIYUN_REGION }}
         run: |
           {
             echo "### Complete JumpServer EE Web image"
@@ -155,5 +171,9 @@ jobs:
             echo
             echo "GHCR: \`ghcr.io/jumpserver-east/web:${{ steps.metadata.outputs.tag }}\`"
             echo
-            echo "Aliyun: \`${{ secrets.ALIYUN_REGION }}/fit2cloud_nickyang0_0/web:${{ steps.metadata.outputs.tag }}\`"
+            if [ "${ALIYUN_ENABLED}" = "true" ]; then
+              echo "Aliyun: \`${ALIYUN_REGION}/fit2cloud_nickyang0_0/web:${{ steps.metadata.outputs.tag }}\`"
+            else
+              echo "Aliyun: skipped (secrets are not configured)"
+            fi
           } >> "${GITHUB_STEP_SUMMARY}"

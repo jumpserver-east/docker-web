@@ -15,11 +15,11 @@ on:
         type: string
     secrets:
       ALIYUN_REGION:
-        required: true
+        required: false
       ALIYUN_USERNAME:
-        required: true
+        required: false
       ALIYUN_PASSWORD:
-        required: true
+        required: false
 
 permissions:
   contents: read
@@ -29,6 +29,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      ALIYUN_ENABLED: ${{ secrets.ALIYUN_REGION != '' && secrets.ALIYUN_USERNAME != '' && secrets.ALIYUN_PASSWORD != '' }}
 
     steps:
       - name: Check out source
@@ -94,6 +96,7 @@ jobs:
           password: ${{ github.token }}
 
       - name: Log in to Aliyun
+        if: env.ALIYUN_ENABLED == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ secrets.ALIYUN_REGION }}
@@ -103,7 +106,6 @@ jobs:
       - name: Build and push EE image
         uses: docker/bake-action@v6
         env:
-          ALIYUN_IMAGE: ${{ secrets.ALIYUN_REGION }}/fit2cloud_nickyang0_0/${{ github.event.repository.name }}
           BASE_IMAGE: ${{ steps.metadata.outputs.base_image }}
           GHCR_IMAGE: ghcr.io/jumpserver-east/${{ github.event.repository.name }}
           TAG: ${{ steps.metadata.outputs.tag }}
@@ -112,6 +114,19 @@ jobs:
           targets: ${{ steps.metadata.outputs.target }}
           push: true
           set: "*.platform=linux/amd64"
+
+      - name: Push to Aliyun
+        if: env.ALIYUN_ENABLED == 'true'
+        shell: bash
+        env:
+          ALIYUN_REGION: ${{ secrets.ALIYUN_REGION }}
+          IMAGE_TAG: ${{ steps.metadata.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          docker buildx imagetools create \
+            --tag "${ALIYUN_REGION}/fit2cloud_nickyang0_0/${GITHUB_REPOSITORY#*/}:${IMAGE_TAG}" \
+            "ghcr.io/jumpserver-east/${GITHUB_REPOSITORY#*/}:${IMAGE_TAG}"
 
       - name: Verify GHCR package is private
         shell: bash
@@ -130,6 +145,8 @@ jobs:
 
       - name: Publish summary
         shell: bash
+        env:
+          ALIYUN_REGION: ${{ secrets.ALIYUN_REGION }}
         run: |
           {
             echo "### EE component image"
@@ -138,7 +155,11 @@ jobs:
             echo
             echo "GHCR: \`ghcr.io/jumpserver-east/${{ github.event.repository.name }}:${{ steps.metadata.outputs.tag }}\`"
             echo
-            echo "Aliyun: \`${{ secrets.ALIYUN_REGION }}/fit2cloud_nickyang0_0/${{ github.event.repository.name }}:${{ steps.metadata.outputs.tag }}\`"
+            if [ "${ALIYUN_ENABLED}" = "true" ]; then
+              echo "Aliyun: \`${ALIYUN_REGION}/fit2cloud_nickyang0_0/${GITHUB_REPOSITORY#*/}:${{ steps.metadata.outputs.tag }}\`"
+            else
+              echo "Aliyun: skipped (secrets are not configured)"
+            fi
             if [ "${GITHUB_REPOSITORY#*/}" = "jumpserver" ]; then
               echo
               echo "> xpack currently uses an empty placeholder target."
