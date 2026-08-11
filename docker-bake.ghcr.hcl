@@ -1,5 +1,9 @@
-variable "IMAGE" {
+variable "GHCR_IMAGE" {
   default = "ghcr.io/jumpserver-east/web"
+}
+
+variable "ALIYUN_IMAGE" {
+  default = "registry.example.com/fit2cloud_nickyang0_0/web"
 }
 
 variable "TAG" {
@@ -19,7 +23,7 @@ variable "WEB_REF" {
 }
 
 group "default" {
-  targets = ["web"]
+  targets = ["web-ee"]
 }
 
 target "lina" {
@@ -42,7 +46,7 @@ target "luna" {
   cache-to   = ["type=gha,mode=max,scope=web-luna"]
 }
 
-target "web" {
+target "web-ce" {
   context    = "./web-source"
   dockerfile = "Dockerfile"
   args = {
@@ -52,7 +56,23 @@ target "web" {
     "jumpserver/lina:${TAG}" = "target:lina"
     "jumpserver/luna:${TAG}" = "target:luna"
   }
-  tags   = ["${IMAGE}:${TAG}"]
+  cache-from = ["type=gha,scope=web-ce"]
+  cache-to   = ["type=gha,mode=max,scope=web-ce"]
+}
+
+target "web-ee" {
+  context    = "./web-source"
+  dockerfile = "Dockerfile-ee"
+  args = {
+    VERSION = "${TAG}"
+  }
+  contexts = {
+    "jumpserver/web:${TAG}-ce" = "target:web-ce"
+  }
+  tags = [
+    "${GHCR_IMAGE}:${TAG}",
+    "${ALIYUN_IMAGE}:${TAG}",
+  ]
   output = ["type=registry"]
   labels = {
     "org.opencontainers.image.title"         = "JumpServer Web"
@@ -61,7 +81,8 @@ target "web" {
     "org.jumpserver.image.lina.revision"      = "${LINA_REF}"
     "org.jumpserver.image.luna.revision"      = "${LUNA_REF}"
     "org.jumpserver.image.dockerweb.revision" = "${WEB_REF}"
+    "org.jumpserver.edition"                  = "ee"
   }
-  cache-from = ["type=gha,scope=web-final"]
-  cache-to   = ["type=gha,mode=max,scope=web-final"]
+  cache-from = ["type=gha,scope=web-ee"]
+  cache-to   = ["type=gha,mode=max,scope=web-ee"]
 }
