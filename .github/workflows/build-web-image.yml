@@ -122,6 +122,7 @@ jobs:
           GHCR_IMAGE: ghcr.io/jumpserver-east/web
           TAG: ${{ steps.metadata.outputs.tag }}
         with:
+          source: .
           files: docker-bake.ghcr.hcl
           targets: web-ee
           push: true

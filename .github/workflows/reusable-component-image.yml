@@ -110,6 +110,7 @@ jobs:
           GHCR_IMAGE: ghcr.io/jumpserver-east/${{ github.event.repository.name }}
           TAG: ${{ steps.metadata.outputs.tag }}
         with:
+          source: .
           files: .build-config/docker-bake.component.hcl
           targets: ${{ steps.metadata.outputs.target }}
           push: true
