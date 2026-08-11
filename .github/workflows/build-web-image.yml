@@ -9,24 +9,25 @@ on:
       - completed
   workflow_dispatch:
     inputs:
-      component:
-        description: Repository that triggered this build
-        required: true
-        default: web
-        type: choice
-        options:
-          - web
-          - lina
-          - luna
-      source_ref:
-        description: Branch, tag, or commit SHA from the triggering repository
+      lina_branch:
+        description: Lina branch, tag, or commit SHA
         required: true
         default: dev
         type: string
-      source_branch:
-        description: Branch name used for image tagging and counterpart lookup
+      luna_branch:
+        description: Luna branch, tag, or commit SHA
         required: true
         default: dev
+        type: string
+      web_branch:
+        description: Docker Web branch, tag, or commit SHA
+        required: true
+        default: dev
+        type: string
+      tag:
+        description: Docker image tag
+        required: true
+        default: dev-manual
         type: string
 
 permissions:
@@ -34,7 +35,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: web-${{ inputs.component || 'web' }}-${{ github.event.workflow_run.head_sha || inputs.source_ref || github.sha }}
+  group: web-${{ inputs.tag || github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -47,151 +48,54 @@ jobs:
        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      LINA_REF: ${{ inputs.lina_branch || 'dev' }}
+      LUNA_REF: ${{ inputs.luna_branch || 'dev' }}
+      WEB_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.web_branch || github.event.workflow_run.head_sha || github.event.ref }}
+      WEB_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.web_branch || github.event.workflow_run.head_branch || github.event.ref }}
+      REQUESTED_TAG: ${{ inputs.tag }}
 
     steps:
-      - name: Resolve trigger
-        id: trigger
-        shell: bash
-        env:
-          CREATE_REF: ${{ github.event.ref }}
-          INPUT_COMPONENT: ${{ inputs.component }}
-          INPUT_SOURCE_BRANCH: ${{ inputs.source_branch }}
-          INPUT_SOURCE_REF: ${{ inputs.source_ref }}
-          WORKFLOW_RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          set -euo pipefail
-
-          case "${GITHUB_EVENT_NAME}" in
-            workflow_run)
-              component="web"
-              source_ref="${WORKFLOW_RUN_SHA}"
-              source_branch="${WORKFLOW_RUN_BRANCH}"
-              ;;
-            create)
-              component="web"
-              source_ref="${CREATE_REF}"
-              source_branch="${CREATE_REF}"
-              ;;
-            workflow_dispatch)
-              component="${INPUT_COMPONENT}"
-              source_ref="${INPUT_SOURCE_REF}"
-              source_branch="${INPUT_SOURCE_BRANCH}"
-              ;;
-          esac
-
-          case "${component}" in
-            web|lina|luna) ;;
-            *)
-              echo "Unsupported component: ${component}" >&2
-              exit 1
-              ;;
-          esac
-
-          echo "component=${component}" >> "${GITHUB_OUTPUT}"
-          echo "source_ref=${source_ref}" >> "${GITHUB_OUTPUT}"
-          echo "source_branch=${source_branch}" >> "${GITHUB_OUTPUT}"
-
-      - name: Resolve Lina, Luna, and Docker Web revisions
-        id: revisions
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          COMPONENT: ${{ steps.trigger.outputs.component }}
-          SOURCE_BRANCH: ${{ steps.trigger.outputs.source_branch }}
-          SOURCE_REF: ${{ steps.trigger.outputs.source_ref }}
-        run: |
-          set -euo pipefail
-
-          encode_ref() {
-            jq -rn --arg value "$1" '$value | @uri'
-          }
-
-          resolve_commit() {
-            local repository="$1"
-            local ref="$2"
-            local encoded_ref
-            encoded_ref="$(encode_ref "${ref}")"
-            gh api "repos/jumpserver-east/${repository}/commits/${encoded_ref}" --jq '.sha'
-          }
-
-          matching_branch_or_dev() {
-            local repository="$1"
-            local branch="$2"
-            local encoded_branch
-            encoded_branch="$(encode_ref "${branch}")"
-
-            if gh api "repos/jumpserver-east/${repository}/branches/${encoded_branch}" \
-              --jq '.commit.sha' 2>/dev/null; then
-              return
-            fi
-
-            gh api "repos/jumpserver-east/${repository}/branches/dev" --jq '.commit.sha'
-          }
-
-          case "${COMPONENT}" in
-            lina)
-              lina_ref="$(resolve_commit lina "${SOURCE_REF}")"
-              luna_ref="$(matching_branch_or_dev luna "${SOURCE_BRANCH}")"
-              web_ref="$(resolve_commit docker-web dev)"
-              ;;
-            luna)
-              lina_ref="$(matching_branch_or_dev lina "${SOURCE_BRANCH}")"
-              luna_ref="$(resolve_commit luna "${SOURCE_REF}")"
-              web_ref="$(resolve_commit docker-web dev)"
-              ;;
-            web)
-              lina_ref="$(matching_branch_or_dev lina "${SOURCE_BRANCH}")"
-              luna_ref="$(matching_branch_or_dev luna "${SOURCE_BRANCH}")"
-              web_ref="$(resolve_commit docker-web "${SOURCE_REF}")"
-              ;;
-          esac
-
-          {
-            echo "lina=${lina_ref}"
-            echo "luna=${luna_ref}"
-            echo "web=${web_ref}"
-          } >> "${GITHUB_OUTPUT}"
-
       - name: Check out build configuration
         uses: actions/checkout@v4
         with:
           ref: docker-build
           fetch-depth: 1
 
-      - name: Check out Docker Web source revision
+      - name: Check out Docker Web source
         uses: actions/checkout@v4
         with:
           repository: jumpserver-east/docker-web
-          ref: ${{ steps.revisions.outputs.web }}
+          ref: ${{ env.WEB_REF }}
           path: web-source
           fetch-depth: 1
 
-      - name: Prepare image metadata
-        id: image
+      - name: Prepare tag
+        id: metadata
         shell: bash
-        env:
-          SOURCE_BRANCH: ${{ steps.trigger.outputs.source_branch }}
         run: |
           set -euo pipefail
 
-          branch_tag="$(
-            printf '%s' "${SOURCE_BRANCH}" |
-              tr '[:upper:]' '[:lower:]' |
-              sed -E 's/[^a-z0-9_.-]+/-/g; s/^[.-]+//; s/[.-]+$//' |
-              cut -c1-100
-          )"
-          timestamp="$(TZ=Asia/Shanghai date +'%Y%m%d-%H%M%S')"
-
-          if [ -z "${branch_tag}" ]; then
-            branch_tag="revision"
+          if [ -n "${REQUESTED_TAG}" ]; then
+            raw_tag="${REQUESTED_TAG}"
+          else
+            timestamp="$(TZ=Asia/Shanghai date +'%Y%m%d-%H%M%S')"
+            raw_tag="${WEB_BRANCH}-${timestamp}"
           fi
 
-          echo "image=ghcr.io/jumpserver-east/web" >> "${GITHUB_OUTPUT}"
-          echo "tag=${branch_tag}-${timestamp}" >> "${GITHUB_OUTPUT}"
+          tag="$(
+            printf '%s' "${raw_tag}" |
+              tr '[:upper:]' '[:lower:]' |
+              sed -E 's/[^a-z0-9_.-]+/-/g; s/^[.-]+//; s/[.-]+$//' |
+              cut -c1-128
+          )"
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+          if [ -z "${tag}" ]; then
+            echo "Image tag is empty after normalization." >&2
+            exit 1
+          fi
+
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -201,22 +105,18 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
 
       - name: Build Lina, Luna, and complete Web image
         uses: docker/bake-action@v6
         env:
-          IMAGE: ${{ steps.image.outputs.image }}
-          TAG: ${{ steps.image.outputs.tag }}
-          LINA_REF: ${{ steps.revisions.outputs.lina }}
-          LUNA_REF: ${{ steps.revisions.outputs.luna }}
-          WEB_REF: ${{ steps.revisions.outputs.web }}
+          IMAGE: ghcr.io/jumpserver-east/web
+          TAG: ${{ steps.metadata.outputs.tag }}
         with:
           files: docker-bake.ghcr.hcl
           targets: web
           push: true
-          set: |
-            *.platform=${{ vars.DOCKER_PLATFORMS || 'linux/amd64' }}
+          set: "*.platform=linux/amd64"
 
       - name: Publish summary
         shell: bash
@@ -224,13 +124,11 @@ jobs:
           {
             echo "### Complete JumpServer Web image"
             echo
-            echo "Trigger: \`${{ steps.trigger.outputs.component }}:${{ steps.trigger.outputs.source_branch }}\`"
+            echo "Lina: \`${LINA_REF}\`"
             echo
-            echo "Lina revision: \`${{ steps.revisions.outputs.lina }}\`"
+            echo "Luna: \`${LUNA_REF}\`"
             echo
-            echo "Luna revision: \`${{ steps.revisions.outputs.luna }}\`"
+            echo "Docker Web: \`${WEB_REF}\`"
             echo
-            echo "Docker Web revision: \`${{ steps.revisions.outputs.web }}\`"
-            echo
-            echo "Image: \`${{ steps.image.outputs.image }}:${{ steps.image.outputs.tag }}\`"
+            echo "Image: \`ghcr.io/jumpserver-east/web:${{ steps.metadata.outputs.tag }}\`"
           } >> "${GITHUB_STEP_SUMMARY}"

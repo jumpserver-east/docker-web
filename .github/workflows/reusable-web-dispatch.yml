@@ -1,0 +1,128 @@
+name: Reusable Complete Web Build Dispatcher
+
+on:
+  workflow_call:
+    inputs:
+      component:
+        required: true
+        type: string
+      source_ref:
+        required: true
+        type: string
+      source_branch:
+        required: true
+        type: string
+      image_tag:
+        required: false
+        default: ""
+        type: string
+    secrets:
+      DOCKER_WEB_DISPATCH_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+
+      - name: Prepare request
+        id: request
+        shell: bash
+        env:
+          COMPONENT: ${{ inputs.component }}
+          REQUESTED_TAG: ${{ inputs.image_tag }}
+          SOURCE_BRANCH: ${{ inputs.source_branch }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${REQUESTED_TAG}" ]; then
+            raw_tag="${REQUESTED_TAG}"
+          else
+            timestamp="$(TZ=Asia/Shanghai date +'%Y%m%d-%H%M%S')"
+            raw_tag="${SOURCE_BRANCH}-${timestamp}"
+          fi
+
+          tag="$(
+            printf '%s' "${raw_tag}" |
+              tr '[:upper:]' '[:lower:]' |
+              sed -E 's/[^a-z0-9_.-]+/-/g; s/^[.-]+//; s/[.-]+$//' |
+              cut -c1-128
+          )"
+          revision="$(git rev-parse HEAD)"
+
+          case "${COMPONENT}" in
+            lina)
+              lina_branch="${revision}"
+              luna_branch="dev"
+              ;;
+            luna)
+              lina_branch="dev"
+              luna_branch="${revision}"
+              ;;
+            *)
+              echo "Component must be lina or luna." >&2
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "lina_branch=${lina_branch}"
+            echo "luna_branch=${luna_branch}"
+            echo "revision=${revision}"
+            echo "tag=${tag}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Dispatch Docker Web workflow
+        shell: bash
+        env:
+          DISPATCH_TOKEN: ${{ secrets.DOCKER_WEB_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          payload="$(jq -nc \
+            --arg ref "docker-build" \
+            --arg lina_branch "${{ steps.request.outputs.lina_branch }}" \
+            --arg luna_branch "${{ steps.request.outputs.luna_branch }}" \
+            --arg web_branch "dev" \
+            --arg tag "${{ steps.request.outputs.tag }}" \
+            '{
+              ref: $ref,
+              inputs: {
+                lina_branch: $lina_branch,
+                luna_branch: $luna_branch,
+                web_branch: $web_branch,
+                tag: $tag
+              }
+            }'
+          )"
+
+          curl --fail-with-body --silent --show-error --location \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${DISPATCH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --data "${payload}" \
+            "https://api.github.com/repos/jumpserver-east/docker-web/actions/workflows/build-web-image.yml/dispatches"
+
+      - name: Publish summary
+        shell: bash
+        run: |
+          {
+            echo "### Complete Web build dispatched"
+            echo
+            echo "Component: \`${{ inputs.component }}\`"
+            echo
+            echo "Branch: \`${{ inputs.source_branch }}\`"
+            echo
+            echo "Tag: \`${{ steps.request.outputs.tag }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
