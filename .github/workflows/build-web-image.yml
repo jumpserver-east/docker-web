@@ -9,25 +9,30 @@ on:
       - completed
   workflow_dispatch:
     inputs:
+      branch:
+        description: '匹配分支，如 ferror@v4.10.19-lts；依次匹配同名、@ 后基线、dev'
+        required: false
+        default: ''
+        type: string
       lina_branch:
-        description: Lina branch, tag, or commit SHA
-        required: true
-        default: dev
+        description: 'Lina 覆盖引用（分支/tag/SHA）；留空自动匹配'
+        required: false
+        default: ''
         type: string
       luna_branch:
-        description: Luna branch, tag, or commit SHA
-        required: true
-        default: dev
+        description: 'Luna 覆盖引用（分支/tag/SHA）；留空自动匹配'
+        required: false
+        default: ''
         type: string
       web_branch:
-        description: Docker Web branch, tag, or commit SHA
-        required: true
-        default: dev
+        description: 'Docker Web 覆盖引用（分支/tag/SHA）；留空自动匹配'
+        required: false
+        default: ''
         type: string
       tag:
-        description: Docker image tag
-        required: true
-        default: dev-manual
+        description: '镜像标签（不参与源码选择）；留空按匹配分支和时间生成'
+        required: false
+        default: ''
         type: string
 
 permissions:
@@ -45,14 +50,12 @@ jobs:
       (github.event_name == 'create' && github.event.ref_type == 'branch') ||
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch != 'docker-build' &&
        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      LINA_REF: ${{ inputs.lina_branch || 'dev' }}
-      LUNA_REF: ${{ inputs.luna_branch || 'dev' }}
-      WEB_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.web_branch || github.event.workflow_run.head_sha || github.event.ref }}
-      WEB_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.web_branch || github.event.workflow_run.head_branch || github.event.ref }}
+      WEB_BRANCH: ${{ github.event_name == 'workflow_dispatch' && (inputs.branch || inputs.web_branch || 'dev') || github.event.workflow_run.head_branch || github.event.ref }}
       REQUESTED_TAG: ${{ inputs.tag }}
       ALIYUN_ENABLED: ${{ secrets.ALIYUN_REGION != '' && secrets.ALIYUN_USERNAME != '' && secrets.ALIYUN_PASSWORD != '' }}
 
@@ -62,6 +65,41 @@ jobs:
         with:
           ref: docker-build
           fetch-depth: 1
+
+      - name: Resolve matching component branches
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TRIGGER_REF: ${{ github.event.workflow_run.head_sha || github.sha }}
+          LINA_OVERRIDE: ${{ inputs.lina_branch }}
+          LUNA_OVERRIDE: ${{ inputs.luna_branch }}
+          WEB_OVERRIDE: ${{ inputs.web_branch }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == workflow_dispatch ]]; then
+            python3 .github/scripts/resolve-web-refs.py \
+              --source-branch "${WEB_BRANCH}" \
+              --lina-ref "${LINA_OVERRIDE}" \
+              --luna-ref "${LUNA_OVERRIDE}" \
+              --web-ref "${WEB_OVERRIDE}" >> "${GITHUB_ENV}"
+          else
+            python3 .github/scripts/resolve-web-refs.py \
+              --component web \
+              --source-branch "${WEB_BRANCH}" \
+              --source-ref "${TRIGGER_REF}" >> "${GITHUB_ENV}"
+          fi
+
+      - name: Show selected source references
+        shell: bash
+        run: |
+          {
+            echo '### Selected source references'
+            echo
+            printf 'Matching branch: `%s`\n\n' "${WEB_BRANCH}"
+            printf 'Lina: `%s`\n\n' "${LINA_REF}"
+            printf 'Luna: `%s`\n\n' "${LUNA_REF}"
+            printf 'Docker Web: `%s`\n' "${WEB_REF}"
+          } | tee -a "${GITHUB_STEP_SUMMARY}"
 
       - name: Check out Docker Web source
         uses: actions/checkout@v4

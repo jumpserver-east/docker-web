@@ -1,0 +1,33 @@
+name: Test web build branch selection
+
+on:
+  push:
+    branches: [docker-build]
+    paths:
+      - .github/scripts/resolve-web-refs.py
+      - .github/scripts/tests/test_resolve_web_refs.py
+      - .github/workflows/build-web-image.yml
+      - .github/workflows/reusable-web-dispatch.yml
+      - .github/workflows/test-web-build.yml
+  pull_request:
+    branches: [docker-build]
+    paths:
+      - .github/scripts/resolve-web-refs.py
+      - .github/scripts/tests/test_resolve_web_refs.py
+      - .github/workflows/build-web-image.yml
+      - .github/workflows/reusable-web-dispatch.yml
+      - .github/workflows/test-web-build.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test branch matching and manual workflow inputs
+        run: python3 .github/scripts/tests/test_resolve_web_refs.py

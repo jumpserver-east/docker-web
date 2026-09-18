@@ -35,11 +35,31 @@ jobs:
           ref: ${{ inputs.source_ref }}
           fetch-depth: 1
 
-      - name: Prepare request
-        id: request
+      - name: Check out build configuration
+        uses: actions/checkout@v4
+        with:
+          repository: jumpserver-east/docker-web
+          ref: docker-build
+          path: build-config
+          fetch-depth: 1
+
+      - name: Resolve matching component branches
+        id: refs
         shell: bash
         env:
           COMPONENT: ${{ inputs.component }}
+          SOURCE_BRANCH: ${{ inputs.source_branch }}
+        run: |
+          set -euo pipefail
+          python3 build-config/.github/scripts/resolve-web-refs.py \
+            --component "${COMPONENT}" \
+            --source-branch "${SOURCE_BRANCH}" \
+            --source-ref "$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+
+      - name: Prepare tag
+        id: request
+        shell: bash
+        env:
           REQUESTED_TAG: ${{ inputs.image_tag }}
           SOURCE_BRANCH: ${{ inputs.source_branch }}
         run: |
@@ -58,46 +78,31 @@ jobs:
               sed -E 's/[^a-z0-9_.-]+/-/g; s/^[.-]+//; s/[.-]+$//' |
               cut -c1-128
           )"
-          revision="$(git rev-parse HEAD)"
-
-          case "${COMPONENT}" in
-            lina)
-              lina_branch="${revision}"
-              luna_branch="dev"
-              ;;
-            luna)
-              lina_branch="dev"
-              luna_branch="${revision}"
-              ;;
-            *)
-              echo "Component must be lina or luna." >&2
-              exit 1
-              ;;
-          esac
-
-          {
-            echo "lina_branch=${lina_branch}"
-            echo "luna_branch=${luna_branch}"
-            echo "revision=${revision}"
-            echo "tag=${tag}"
-          } >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
       - name: Dispatch Docker Web workflow
         shell: bash
         env:
           DISPATCH_TOKEN: ${{ secrets.DOCKER_WEB_DISPATCH_TOKEN }}
+          LINA_REF: ${{ steps.refs.outputs.LINA_REF }}
+          LUNA_REF: ${{ steps.refs.outputs.LUNA_REF }}
+          WEB_REF: ${{ steps.refs.outputs.WEB_REF }}
+          IMAGE_TAG: ${{ steps.request.outputs.tag }}
+          SOURCE_BRANCH: ${{ inputs.source_branch }}
         run: |
           set -euo pipefail
 
           payload="$(jq -nc \
             --arg ref "docker-build" \
-            --arg lina_branch "${{ steps.request.outputs.lina_branch }}" \
-            --arg luna_branch "${{ steps.request.outputs.luna_branch }}" \
-            --arg web_branch "dev" \
-            --arg tag "${{ steps.request.outputs.tag }}" \
+            --arg branch "${SOURCE_BRANCH}" \
+            --arg lina_branch "${LINA_REF}" \
+            --arg luna_branch "${LUNA_REF}" \
+            --arg web_branch "${WEB_REF}" \
+            --arg tag "${IMAGE_TAG}" \
             '{
               ref: $ref,
               inputs: {
+                branch: $branch,
                 lina_branch: $lina_branch,
                 luna_branch: $luna_branch,
                 web_branch: $web_branch,
@@ -116,13 +121,26 @@ jobs:
 
       - name: Publish summary
         shell: bash
+        env:
+          COMPONENT: ${{ inputs.component }}
+          SOURCE_BRANCH: ${{ inputs.source_branch }}
+          LINA_REF: ${{ steps.refs.outputs.LINA_REF }}
+          LUNA_REF: ${{ steps.refs.outputs.LUNA_REF }}
+          WEB_REF: ${{ steps.refs.outputs.WEB_REF }}
+          IMAGE_TAG: ${{ steps.request.outputs.tag }}
         run: |
           {
             echo "### Complete Web build dispatched"
             echo
-            echo "Component: \`${{ inputs.component }}\`"
+            echo "Component: \`${COMPONENT}\`"
             echo
-            echo "Branch: \`${{ inputs.source_branch }}\`"
+            echo "Branch: \`${SOURCE_BRANCH}\`"
             echo
-            echo "Tag: \`${{ steps.request.outputs.tag }}\`"
+            echo "Lina: \`${LINA_REF}\`"
+            echo
+            echo "Luna: \`${LUNA_REF}\`"
+            echo
+            echo "Docker Web: \`${WEB_REF}\`"
+            echo
+            echo "Tag: \`${IMAGE_TAG}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
