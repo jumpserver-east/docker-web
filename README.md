@@ -2,6 +2,10 @@
 
 JumpServer 的 LB Nginx Build 项目，其中包含 Lina, Luna 和一些静态安装包文件
 
+每周一北京时间 08:17 从 `jumpserver/docker-web` 同步标准开发与完整版本分支到
+`jumpserver-east/docker-web`。支持手动 dry-run；同步不会触发 Web 镜像构建。
+目标仓库限制、Token 配置与二开分支公约见 [同步说明](.github/sync-version-branches.md)。
+
 ## CI 构建分支选择
 
 Lina、Luna 通过复用工作流触发构建，或 Docker Web 分支自动触发构建时，触发方使用本次源码版本，其余两个仓库分别按以下顺序选择分支：
@@ -42,6 +46,14 @@ Luna 将固定使用该 SHA，Lina 与 Web 各自按同名 → `v4.10.19-lts` �
 也使用同一解析器，固定触发组件 SHA，并为另外两个仓库应用上述匹配顺序。
 
 本地验证：`python3 .github/scripts/tests/test_resolve_web_refs.py`。
+
+### 自动构建与客户分支
+
+客户分支使用 `客户名称@基线分支`，例如 `ferror@v4.10.19-lts`，各组件保持同名。
+本仓库自有构建只监听含 `@` 的客户分支 push；该源码分支必须包含
+`.github/workflows/build-web-image.yml` 才能收到 push 事件。构建实际使用的配置和解析器
+仍从 `docker-build` 检出。标准分支只同步，手动运行仍可显式构建这些版本。
+同一客户分支的新构建会取消其尚未完成的旧构建。
 
 ## Docker 构建
 

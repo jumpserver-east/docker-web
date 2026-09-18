@@ -1,12 +1,9 @@
 name: Build Complete EE Web Image
 
 on:
-  create:
-  workflow_run:
-    workflows:
-      - JumpServer repos generic handler
-    types:
-      - completed
+  push:
+    # Customer branches must carry this workflow to receive push events.
+    branches: ['**@**']
   workflow_dispatch:
     inputs:
       branch:
@@ -40,22 +37,20 @@ permissions:
   packages: write
 
 concurrency:
-  group: web-${{ inputs.tag || github.event.workflow_run.head_sha || github.sha }}
+  group: web-${{ inputs.tag || inputs.branch || inputs.web_branch || github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'create' && github.event.ref_type == 'branch') ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_branch != 'docker-build' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
+      github.repository == 'jumpserver-east/docker-web' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'push' && !github.event.deleted &&
+        github.ref_type == 'branch' && contains(github.ref_name, '@')))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      WEB_BRANCH: ${{ github.event_name == 'workflow_dispatch' && (inputs.branch || inputs.web_branch || 'dev') || github.event.workflow_run.head_branch || github.event.ref }}
+      WEB_BRANCH: ${{ github.event_name == 'workflow_dispatch' && (inputs.branch || inputs.web_branch || 'dev') || github.ref_name }}
       REQUESTED_TAG: ${{ inputs.tag }}
       ALIYUN_ENABLED: ${{ secrets.ALIYUN_REGION != '' && secrets.ALIYUN_USERNAME != '' && secrets.ALIYUN_PASSWORD != '' }}
 
@@ -70,7 +65,7 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
-          TRIGGER_REF: ${{ github.event.workflow_run.head_sha || github.sha }}
+          TRIGGER_REF: ${{ github.sha }}
           LINA_OVERRIDE: ${{ inputs.lina_branch }}
           LUNA_OVERRIDE: ${{ inputs.luna_branch }}
           WEB_OVERRIDE: ${{ inputs.web_branch }}

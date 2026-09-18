@@ -157,7 +157,7 @@ class ResolveWebRefsTests(unittest.TestCase):
         step = workflow.read_text().split('      - name: Resolve matching component branches\n', 1)[1]
         shell = textwrap.dedent(step.split('        run: |\n', 1)[1].split('\n      - name:', 1)[0])
         output = root / 'github-env'
-        for event in ('workflow_dispatch', 'workflow_run'):
+        for event in ('workflow_dispatch', 'push'):
             with self.subTest(event=event):
                 output.write_text('')
                 result = subprocess.run(['bash', '-c', shell], cwd=root, capture_output=True,
