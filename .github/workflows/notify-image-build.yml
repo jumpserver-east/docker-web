@@ -1,0 +1,86 @@
+name: Email image build result
+
+on:
+  workflow_call:
+    inputs:
+      result:
+        type: string
+        required: true
+      image:
+        type: string
+        default: ''
+      source_repository:
+        type: string
+        default: ''
+      source_branch:
+        type: string
+        default: ''
+      source_ref:
+        type: string
+        default: ''
+      sources:
+        type: string
+        default: '{}'
+      origin_context:
+        type: string
+        default: ''
+      phase:
+        type: string
+        default: build
+      actor:
+        type: string
+        default: ''
+      event:
+        type: string
+        default: ''
+    secrets:
+      SMTP_HOST:
+        required: false
+      SMTP_PORT:
+        required: false
+      SMTP_USERNAME:
+        required: false
+      SMTP_PASSWORD:
+        required: false
+      SMTP_FROM:
+        required: false
+      MAIL_RECIPIENTS_JSON:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    if: >-
+      always() && github.repository_owner == 'jumpserver-east' &&
+      contains(fromJSON('["success", "failure", "cancelled"]'), inputs.result)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out notification code
+        uses: actions/checkout@v4
+        with:
+          repository: jumpserver-east/docker-web
+          ref: docker-build
+          persist-credentials: false
+      - name: Send build result and source references
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RESULT: ${{ inputs.result }}
+          BUILD_IMAGE: ${{ inputs.image }}
+          SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          SOURCE_BRANCH: ${{ inputs.source_branch }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          BUILD_SOURCES: ${{ inputs.sources }}
+          ORIGIN_CONTEXT: ${{ inputs.origin_context }}
+          NOTIFICATION_ACTOR: ${{ inputs.actor }}
+          NOTIFICATION_EVENT: ${{ inputs.event }}
+          NOTIFICATION_PHASE: ${{ inputs.phase }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          MAIL_RECIPIENTS_JSON: ${{ secrets.MAIL_RECIPIENTS_JSON }}
+        run: python3 .github/scripts/notify-image-build.py

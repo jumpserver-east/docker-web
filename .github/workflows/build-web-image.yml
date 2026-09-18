@@ -31,6 +31,11 @@ on:
         required: false
         default: ''
         type: string
+      notification_context:
+        description: '由组件传递的通知来源；直接手动构建请留空'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -49,6 +54,10 @@ jobs:
         github.ref_type == 'branch' && contains(github.ref_name, '@')))
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    outputs:
+      sources: ${{ steps.sources.outputs.sources }}
+      web_ref: ${{ steps.sources.outputs.web_ref }}
+      image_tag: ${{ steps.metadata.outputs.tag }}
     env:
       WEB_BRANCH: ${{ github.event_name == 'workflow_dispatch' && (inputs.branch || inputs.web_branch || 'dev') || github.ref_name }}
       REQUESTED_TAG: ${{ inputs.tag }}
@@ -85,6 +94,7 @@ jobs:
           fi
 
       - name: Show selected source references
+        id: sources
         shell: bash
         run: |
           {
@@ -95,6 +105,12 @@ jobs:
             printf 'Luna: `%s`\n\n' "${LUNA_REF}"
             printf 'Docker Web: `%s`\n' "${WEB_REF}"
           } | tee -a "${GITHUB_STEP_SUMMARY}"
+          sources="$(jq -nc --arg lina "${LINA_REF}" --arg luna "${LUNA_REF}" --arg web "${WEB_REF}" \
+            '{"jumpserver-east/lina": {branch: $lina, ref: $lina},
+              "jumpserver-east/luna": {branch: $luna, ref: $luna},
+              "jumpserver-east/docker-web": {branch: $web, ref: $web}}')"
+          echo "sources=${sources}" >> "${GITHUB_OUTPUT}"
+          echo "web_ref=${WEB_REF}" >> "${GITHUB_OUTPUT}"
 
       - name: Check out Docker Web source
         uses: actions/checkout@v4
@@ -206,3 +222,27 @@ jobs:
               echo "Aliyun: skipped (secrets are not configured)"
             fi
           } >> "${GITHUB_STEP_SUMMARY}"
+
+  notify:
+    needs: build
+    if: ${{ always() && needs.build.result != 'skipped' }}
+    uses: jumpserver-east/docker-web/.github/workflows/notify-image-build.yml@docker-build
+    permissions:
+      contents: read
+    with:
+      result: ${{ needs.build.result }}
+      image: ${{ format('ghcr.io/jumpserver-east/web:{0}', needs.build.outputs.image_tag || inputs.tag || 'not-generated') }}
+      source_repository: jumpserver-east/docker-web
+      source_branch: ${{ github.event_name == 'workflow_dispatch' && (inputs.branch || inputs.web_branch || 'dev') || github.ref_name }}
+      source_ref: ${{ needs.build.outputs.web_ref || (github.event_name == 'workflow_dispatch' && (inputs.web_branch || inputs.branch || 'dev') || github.sha) }}
+      sources: ${{ needs.build.outputs.sources || '{}' }}
+      origin_context: ${{ inputs.notification_context }}
+      actor: ${{ github.triggering_actor || github.actor }}
+      event: ${{ github.event_name }}
+    secrets:
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      SMTP_FROM: ${{ secrets.SMTP_FROM }}
+      MAIL_RECIPIENTS_JSON: ${{ secrets.MAIL_RECIPIENTS_JSON }}

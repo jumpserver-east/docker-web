@@ -16,9 +16,29 @@ on:
         required: false
         default: ""
         type: string
+      actor:
+        required: false
+        default: ""
+        type: string
+      event:
+        required: false
+        default: ""
+        type: string
     secrets:
       DOCKER_WEB_DISPATCH_TOKEN:
         required: true
+      SMTP_HOST:
+        required: false
+      SMTP_PORT:
+        required: false
+      SMTP_USERNAME:
+        required: false
+      SMTP_PASSWORD:
+        required: false
+      SMTP_FROM:
+        required: false
+      MAIL_RECIPIENTS_JSON:
+        required: false
 
 permissions:
   contents: read
@@ -56,6 +76,21 @@ jobs:
             --source-branch "${SOURCE_BRANCH}" \
             --source-ref "$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
 
+      - name: Preserve original build trigger
+        id: origin
+        shell: bash
+        env:
+          SOURCE_BRANCH: ${{ inputs.source_branch }}
+          NOTIFICATION_ACTOR: ${{ inputs.actor || github.triggering_actor || github.actor }}
+          NOTIFICATION_EVENT: ${{ inputs.event || github.event_name }}
+        run: |
+          set -euo pipefail
+          context="$(jq -nc --arg repository "${GITHUB_REPOSITORY}" \
+            --arg branch "${SOURCE_BRANCH}" --arg ref "$(git rev-parse HEAD)" \
+            --arg event "${NOTIFICATION_EVENT}" --arg actor "${NOTIFICATION_ACTOR}" \
+            '{repository: $repository, branch: $branch, ref: $ref, event: $event, actor: $actor}')"
+          echo "context=${context}" >> "${GITHUB_OUTPUT}"
+
       - name: Prepare tag
         id: request
         shell: bash
@@ -83,6 +118,7 @@ jobs:
       - name: Dispatch Docker Web workflow
         shell: bash
         env:
+          NOTIFICATION_CONTEXT: ${{ steps.origin.outputs.context }}
           DISPATCH_TOKEN: ${{ secrets.DOCKER_WEB_DISPATCH_TOKEN }}
           LINA_REF: ${{ steps.refs.outputs.LINA_REF }}
           LUNA_REF: ${{ steps.refs.outputs.LUNA_REF }}
@@ -94,6 +130,7 @@ jobs:
 
           payload="$(jq -nc \
             --arg ref "docker-build" \
+            --arg notification_context "${NOTIFICATION_CONTEXT}" \
             --arg branch "${SOURCE_BRANCH}" \
             --arg lina_branch "${LINA_REF}" \
             --arg luna_branch "${LUNA_REF}" \
@@ -103,6 +140,7 @@ jobs:
               ref: $ref,
               inputs: {
                 branch: $branch,
+                notification_context: $notification_context,
                 lina_branch: $lina_branch,
                 luna_branch: $luna_branch,
                 web_branch: $web_branch,
@@ -144,3 +182,24 @@ jobs:
             echo
             echo "Tag: \`${IMAGE_TAG}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
+
+  notify-dispatch-failure:
+    needs: dispatch
+    if: ${{ always() && contains(fromJSON('["failure", "cancelled"]'), needs.dispatch.result) }}
+    uses: jumpserver-east/docker-web/.github/workflows/notify-image-build.yml@docker-build
+    with:
+      result: ${{ needs.dispatch.result }}
+      phase: dispatch
+      image: ${{ format('ghcr.io/jumpserver-east/web:{0}', inputs.image_tag || 'not-generated') }}
+      source_repository: ${{ github.repository }}
+      source_branch: ${{ inputs.source_branch }}
+      source_ref: ${{ inputs.source_ref }}
+      actor: ${{ inputs.actor || github.triggering_actor || github.actor }}
+      event: ${{ inputs.event || github.event_name }}
+    secrets:
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      SMTP_FROM: ${{ secrets.SMTP_FROM }}
+      MAIL_RECIPIENTS_JSON: ${{ secrets.MAIL_RECIPIENTS_JSON }}

@@ -2,7 +2,7 @@
 
 JumpServer 的 LB Nginx Build 项目，其中包含 Lina, Luna 和一些静态安装包文件
 
-每周一北京时间 08:17 从 `jumpserver/docker-web` 同步标准开发与完整版本分支到
+周一至周五北京时间 09:00 从 `jumpserver/docker-web` 同步标准开发与完整版本分支到
 `jumpserver-east/docker-web`。支持手动 dry-run；同步不会触发 Web 镜像构建。
 目标仓库限制、Token 配置与二开分支公约见 [同步说明](.github/sync-version-branches.md)。
 
@@ -61,3 +61,9 @@ Luna 将固定使用该 SHA，Lina 与 Web 各自按同名 → `v4.10.19-lts` �
 VERSION=dev
 docker buildx build --build-arg VERSION=${VERSION} -t jumpserver/web:${VERSION} . --load
 ```
+
+## 构建结果邮件
+
+每次实际构建结束后发送成功、失败或取消结果，包含触发来源和组件引用。Lina/Luna
+传递原始触发身份，避免邮件发给 dispatch bot。请先按 [邮件通知配置](.github/build-notifications.md)
+设置 SMTP 与收件人映射；未配置时 Summary 会提示邮件未发送。

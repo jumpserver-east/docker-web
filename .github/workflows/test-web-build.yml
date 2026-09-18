@@ -5,6 +5,9 @@ on:
     branches: [docker-build]
     paths:
       - .github/scripts/resolve-web-refs.py
+      - .github/scripts/notify-image-build.py
+      - .github/scripts/tests/test_notify_image_build.py
+      - .github/workflows/notify-image-build.yml
       - .github/scripts/tests/test_resolve_web_refs.py
       - .github/workflows/build-web-image.yml
       - .github/workflows/reusable-web-dispatch.yml
@@ -13,6 +16,9 @@ on:
     branches: [docker-build]
     paths:
       - .github/scripts/resolve-web-refs.py
+      - .github/scripts/notify-image-build.py
+      - .github/scripts/tests/test_notify_image_build.py
+      - .github/workflows/notify-image-build.yml
       - .github/scripts/tests/test_resolve_web_refs.py
       - .github/workflows/build-web-image.yml
       - .github/workflows/reusable-web-dispatch.yml
@@ -30,4 +36,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Test branch matching and manual workflow inputs
-        run: python3 .github/scripts/tests/test_resolve_web_refs.py
+        run: |
+          python3 .github/scripts/tests/test_resolve_web_refs.py
+          python3 .github/scripts/tests/test_notify_image_build.py

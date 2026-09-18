@@ -33,6 +33,7 @@ class WorkflowPolicyTests(unittest.TestCase):
             [7, '.github/workflows/legacy.yaml', 'active'],
             [8, '.github/workflows/reusable-web-dispatch.yml', 'active'],
             [9, '.github/workflows/test-web-build.yml', 'active'],
+            [10, '.github/workflows/notify-image-build.yml', 'active'],
         ]
         cli = self.root / 'gh'
         cli.write_text('#!' + sys.executable + '\n' + textwrap.dedent('''\

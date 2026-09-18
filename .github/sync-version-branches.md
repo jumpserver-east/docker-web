@@ -7,7 +7,7 @@
 | 只读源仓库 | `https://github.com/jumpserver/docker-web.git` |
 | 唯一写入目标 | `jumpserver-east/docker-web` |
 | 工作流分支 | `docker-build`（需为默认分支） |
-| 定时 | 每周一北京时间 08:17，UTC `17 0 * * 1` |
+| 定时 | 周一至周五北京时间 09:00，UTC `0 1 * * 1-5` |
 | 手动运行 | 支持，`dry_run` 默认勾选 |
 
 工作流同时校验 `github.repository` 和 `github.ref`。同步步骤设置
@@ -26,11 +26,12 @@ origin 的实际 push URL（含 pushurl 和 URL rewrite）；错误目标或多�
 
 ## 工作流与镜像
 
-`docker-build` 仅保留本 fork 自有的四个 workflow：
+`docker-build` 仅保留本 fork 自有的五个 workflow：
 
 - `build-web-image.yml`
 - `reusable-web-dispatch.yml`
 - `test-web-build.yml`
+- `notify-image-build.yml`
 - `sync-version-branches.yml`
 
 继承的 Nginx、静态资源、依赖更新、通用 handler 和构建测试 workflow 已从本配置分支
